@@ -78,6 +78,9 @@ body.editing .mk.sel{outline:2px solid var(--accent);outline-offset:2px;backgrou
 .btn:disabled{opacity:.45;cursor:default}
 .share{font-size:12px;padding:3px 8px;border-radius:99px;border:1px solid var(--line);white-space:nowrap}
 .share.on{border-color:var(--accent);color:var(--accent)}
+.pv{background:color-mix(in srgb,#f59e0b 16%,var(--panel));border:1px solid #f59e0b;border-radius:8px;padding:6px 10px;font-size:13px}
+.pv b{color:#b45309}
+.pvname{font-family:var(--font-data);font-size:12px}
 .share.dirty{border-color:#d97706;color:#b45309;font-weight:700}
 #editBtn.dirty{border-color:#d97706;box-shadow:inset 0 0 0 1px #d97706}
 .mkmenu{position:relative}
@@ -127,6 +130,12 @@ body.delmode .mk:hover{outline:2px solid #dc2626!important;outline-offset:2px}
     <button class="btn primary" id="newLoad">新規読込</button>
     <input type="file" id="file" accept=".xlsx,.xlsm" hidden>
   </div>
+  <div class="row pv" id="pvbar" hidden>
+    <b>プレビュー中</b><span id="pvName" class="pvname"></span><span>この表示はまだ他のPCに共有されていません</span>
+    <div class="spacer"></div>
+    <button class="btn" id="pvCancel">取り消し</button>
+    <button class="btn primary" id="pvShare">この表示を共有</button>
+  </div>
   <div class="row" id="row2" hidden>
     <div class="legend" id="legend"></div>
     <div class="spacer"></div>
@@ -139,7 +148,7 @@ body.delmode .mk:hover{outline:2px solid #dc2626!important;outline-offset:2px}
   <div class="empty" id="empty">
     <div class="drop">
       <h2>ヒートマップのExcelをここにドロップ</h2>
-      <p><code>HFO1_UtilizationMap_HeatMap.xlsx</code> を読み込むと、各フロアのシートを反転表示します。<br>フロアは上のボタンか ← → キー、数字キー（2〜6）で切り替えできます。</p>
+      <p><code>HFO1_UtilizationMap_HeatMap.xlsx</code> を読み込むと、各フロアのシートを反転表示します。確認後に「この表示を共有」を押すと、ほかのPCにも同じ表示が出ます。<br>フロアは上のボタンか ← → キー、数字キー（2〜6）で切り替えできます。</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><label class="btn primary" for="file">ファイルを選択</label><button class="btn" id="backView" hidden>表示に戻る</button></div>
       <p id="emptyNote"></p>
     </div>
@@ -175,7 +184,7 @@ $('mode').value=settings.mode;
 
 /* ---------- IndexedDB: 前回ファイル ---------- */
 function idb(){return new Promise((res,rej)=>{try{const r=indexedDB.open('hfo1-heatmap',1);r.onupgradeneeded=()=>r.result.createObjectStore('f');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)}catch(e){rej(e)}})}
-async function saveLast(name,buf){try{const db=await idb();db.transaction('f','readwrite').objectStore('f').put({name,buf,at:Date.now()},'last')}catch(e){}}
+async function saveLast(name,buf,sharedAt){try{const db=await idb();db.transaction('f','readwrite').objectStore('f').put({name,buf,at:Date.now(),sharedAt:sharedAt||0},'last')}catch(e){}}
 async function loadLast(){try{const db=await idb();return await new Promise(res=>{const q=db.transaction('f').objectStore('f').get('last');q.onsuccess=()=>res(q.result||null);q.onerror=()=>res(null)})}catch(e){return null}}
 
 /* ---------- colors ---------- */
@@ -435,10 +444,15 @@ async function openBuffer(buf,name,store){
     return true;
   }catch(e){console.error(e);toast('読み込めませんでした：'+(e.message||e)+'（.xlsx を選んでください）');return false}
 }
+let pending=null, mapAt=0;   // pending: 共有前のプレビュー {name,buf} / mapAt: いま表示している共有マップの保存時刻
 async function openFile(f){
   if(!f)return;if(!/\.xls[xm]$/i.test(f.name)){toast('.xlsx ファイルを選んでください');return}
-  const buf=await f.arrayBuffer();if(await openBuffer(buf,f.name,true))toast(f.name+' を読み込みました');
+  const buf=await f.arrayBuffer();
+  if(backend&&backend.saveMap&&canWrite){
+    if(await openBuffer(buf,f.name,false)){pending={name:f.name,buf};showPreview(true);toast('プレビューです。確認したら「この表示を共有」を押してください')}
+  }else if(await openBuffer(buf,f.name,true))toast(f.name+' を読み込みました');
 }
+function showPreview(on){$('pvbar').hidden=!on;if(on)$('pvName').textContent=pending?pending.name:''}
 $('file').onchange=e=>{openFile(e.target.files[0]);e.target.value=''};
 function showLoader(on){
   $('empty').hidden=!on;$('plate').hidden=on||!sheets.length;$('row2').hidden=on||!sheets.length;
@@ -615,15 +629,29 @@ function localBackend(){
     async load(){try{return JSON.parse(localStorage.getItem(K)||'null')||{markers:{},savedAt:0}}catch(e){return{markers:{},savedAt:0}}},
     async save(markers){const at=Date.now();try{localStorage.setItem(K,JSON.stringify({markers,savedAt:at}))}catch(e){return{ok:false,error:'保存領域に書き込めません'}}return{ok:true,savedAt:at}}};
 }
+function b64enc(buf){const u=new Uint8Array(buf);let s='';for(let i=0;i<u.length;i+=0x8000)s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(s)}
+function b64dec(b){const s=atob(b);const u=new Uint8Array(s.length);for(let i=0;i<s.length;i++)u[i]=s.charCodeAt(i);return u.buffer}
 function gasBackend(url){
+  const get=async q=>{const r=await fetch(url+(url.includes('?')?'&':'?')+q+'&t='+Date.now());if(!r.ok)throw new Error('HTTP '+r.status);return await r.json()};
+  const post=async o=>{const r=await fetch(url,{method:'POST',body:JSON.stringify(o)});if(!r.ok)throw new Error('HTTP '+r.status);return await r.json()};
   return{kind:'gas',
-    async load(){const r=await fetch(url+(url.includes('?')?'&':'?')+'t='+Date.now());if(!r.ok)throw new Error('HTTP '+r.status);return await r.json()},
-    async save(markers,base,force){const r=await fetch(url,{method:'POST',body:JSON.stringify({markers,base,force:!!force})});if(!r.ok)throw new Error('HTTP '+r.status);return await r.json()}};
+    load:()=>get('a=state'),                                   // {markers,savedAt,map:{name,at}}
+    save:(markers,base,force)=>post({type:'markers',markers,base,force:!!force}),
+    async loadMap(){const d=await get('a=map');if(!d||!d.b64)return null;return{name:d.name,at:d.at,buf:b64dec(d.b64)}},
+    saveMap:(name,buf)=>post({type:'map',name,b64:b64enc(buf)})};
 }
 function claudeBackend(db){
-  const ref=db.doc('state/markers');
+  const ref=db.doc('state/markers'), mref=db.doc('state/map');
+  const CH=180000;
   return{kind:'claude',
-    async load(){const s=await ref.get();return s.exists?s.data():{markers:{},savedAt:0}},
+    async load(){const s=await ref.get();const m=await mref.get();const d=s.exists?{...s.data()}:{markers:{},savedAt:0};if(m.exists){const v=m.data();d.map={name:v.name,at:v.at}}return d},
+    async loadMap(){const m=await mref.get();if(!m.exists)return null;const v=m.data();let b='';for(let i=0;i<v.n;i++){const c=await db.doc('mapchunks/'+v.at+'_'+i).get();if(!c.exists)return null;b+=c.data().d}return{name:v.name,at:v.at,buf:b64dec(b)}},
+    async saveMap(name,buf){const b=b64enc(buf);const at=Date.now();const n=Math.ceil(b.length/CH);
+      const old=await mref.get();
+      for(let i=0;i<n;i++)await db.doc('mapchunks/'+at+'_'+i).set({d:b.slice(i*CH,(i+1)*CH)});
+      await mref.set({name,at,n});
+      if(old.exists){const o=old.data();for(let i=0;i<(o.n||0);i++)try{await db.doc('mapchunks/'+o.at+'_'+i).delete()}catch(e){}}
+      return{ok:true,at}},
     async save(markers,base,force){
       if(!force){const s=await ref.get();const cur=s.exists?(s.data().savedAt||0):0;if(cur&&base!==cur)return{ok:false,conflict:true}}
       const at=Date.now();await ref.set({markers,savedAt:at});return{ok:true,savedAt:at}}};
@@ -649,6 +677,46 @@ $('saveBtn').onclick=async()=>{
     b.disabled=!canWrite;
   }finally{b.textContent=dirty?'保存（未保存の変更あり）':'保存'}
 };
+$('pvShare').onclick=async()=>{
+  if(!pending||!backend||!backend.saveMap)return;
+  const b=$('pvShare');b.disabled=true;b.textContent='共有中…';
+  try{
+    const res=await backend.saveMap(pending.name,pending.buf);
+    if(!res||!res.ok)throw new Error((res&&res.error)||'不明なエラー');
+    mapAt=res.at||Date.now();await saveLast(pending.name,pending.buf,mapAt);
+    pending=null;showPreview(false);toast('共有しました。ほかのPCにも数分以内に表示されます');
+  }catch(e){console.warn(e);toast('共有できませんでした：'+(e.message||e))}
+  finally{b.disabled=false;b.textContent='この表示を共有'}
+};
+$('pvCancel').onclick=async()=>{
+  pending=null;showPreview(false);
+  const last=await loadLast();
+  if(last&&last.buf){await openBuffer(last.buf,last.name,false);toast('共有中の表示に戻しました')}
+  else{sheets=[];showLoader(true);$('backView').hidden=true}
+};
+// 共有マップを取り込む（同じものが手元にあればダウンロードしない）
+async function syncMap(meta,first){
+  if(pending)return;                                  // プレビュー中は上書きしない
+  if(!meta||!meta.at){
+    if(first){const last=await loadLast();if(last&&last.buf)await openBuffer(last.buf,last.name,false)}
+    return;
+  }
+  if(meta.at===mapAt&&sheets.length)return;
+  const last=await loadLast();
+  if(last&&last.buf&&last.sharedAt===meta.at){mapAt=meta.at;await openBuffer(last.buf,last.name,false);return}
+  try{
+    const m=await backend.loadMap();if(!m)return;
+    if(await openBuffer(m.buf,m.name,false)){mapAt=m.at;await saveLast(m.name,m.buf,m.at);if(!first)toast('共有マップが更新されました：'+m.name)}
+  }catch(e){console.warn(e);if(first&&last&&last.buf)await openBuffer(last.buf,last.name,false);toast('共有マップを読み込めませんでした')}
+}
+async function refreshAll(first){
+  if(!backend)return;
+  try{
+    const d=await backend.load();
+    if(backend.loadMap)await syncMap(d&&d.map,first);
+    if(!dirty)applyRemote(d);
+  }catch(e){console.warn(e);if(first){const last=await loadLast();if(last&&last.buf)await openBuffer(last.buf,last.name,false);toast('共有先に接続できません。この端末の表示を使います')}}
+}
 (async()=>{
   if(/^https:\/\/script\.google(usercontent)?\.com\//.test(GAS_URL))backend=gasBackend(GAS_URL);
   else{
@@ -657,9 +725,18 @@ $('saveBtn').onclick=async()=>{
     else backend=localBackend();
   }
   setShare();
-  await reloadRemote(true);
-  // 他のPCが保存した配置を5分ごとに取り込む（未保存の変更があるときは取り込まない）
-  if(backend.kind!=='local')setInterval(()=>{if(document.visibilityState==='visible')reloadRemote(true)},5*60000);
+  if(backend.kind==='local'){
+    const last=await loadLast();
+    if(last&&last.buf)await openBuffer(last.buf,last.name,false);
+    else $('emptyNote').textContent='一度読み込んだファイルは、このブラウザで次回も自動表示されます。';
+    await reloadRemote(true);
+  }else{
+    $('emptyNote').textContent='共有中のマップを確認しています…';
+    await refreshAll(true);
+    if(!sheets.length)$('emptyNote').textContent='まだ共有されたマップがありません。Excelを読み込んで「この表示を共有」を押してください。';
+    // 他のPCが共有したマップ・配置を5分ごとに取り込む（未保存の変更・プレビュー中は取り込まない）
+    setInterval(()=>{if(document.visibilityState==='visible')refreshAll(false)},5*60000);
+  }
 })();
 
 /* ---------- フルスクリーン ---------- */
@@ -681,14 +758,6 @@ addEventListener('keydown',e=>{
 });
 addEventListener('resize',()=>{cancelAnimationFrame(rt);rt=requestAnimationFrame(render)});
 
-// 前回ファイルを自動で開く
-(async()=>{
-  const last=await loadLast();
-  if(last&&last.buf&&!sheets.length){
-    const ok=await openBuffer(last.buf,last.name,false);
-    if(ok)toast('前回のファイルを表示中：'+last.name);
-  }else{$('emptyNote').textContent='一度読み込んだファイルは、このブラウザで次回も自動表示されます。'}
-})();
 document.fonts?.ready?.then(()=>{if(sheets.length)render()});
 })();
 </script>
