@@ -128,7 +128,7 @@ body.delmode .mk:hover{outline:2px solid #dc2626!important;outline-offset:2px}
     <button class="btn" id="saveBtn" disabled>公開</button>
     <span class="share" id="shareState" hidden>読込中…</span>
     <button class="btn primary" id="newLoad">新規読込</button>
-    <input type="file" id="file" accept=".xlsx,.xlsm" hidden>
+    <input type="file" id="file" accept=".xlsx,.xlsm,.zip" hidden>
   </div>
   <div class="row" id="row2" hidden>
     <div class="legend" id="legend"></div>
@@ -141,7 +141,7 @@ body.delmode .mk:hover{outline:2px solid #dc2626!important;outline-offset:2px}
   <div id="plate" hidden><canvas id="cv"></canvas><div id="marks"></div></div>
   <div class="empty" id="empty">
     <div class="drop">
-      <h2 id="emptyTitle">ヒートマップのExcelをここにドロップ</h2>
+      <h2 id="emptyTitle">ヒートマップのExcel（またはZIP）をここにドロップ</h2>
       <p id="emptyDesc"><code>HFO1_UtilizationMap_HeatMap.xlsx</code> を読み込み、現在地を設定して「公開」を押すと、閲覧用PCに同じ表示が出ます。<br>フロアは上のボタンか ← → キー、数字キー（2〜6）で切り替えできます。</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><label class="btn primary" for="file" id="fileBtn">ファイルを選択</label><button class="btn" id="backView" hidden>表示に戻る</button></div>
       <p id="emptyNote"></p>
@@ -442,8 +442,20 @@ let pendingMap=null, mapAt=0;   // pendingMap: 読み込んだがまだ公開し
 async function openFile(f){
   if(!f)return;
   if(!isEditor){toast('閲覧用の画面では読み込めません');return}
-  if(!/\.xls[xm]$/i.test(f.name)){toast('.xlsx ファイルを選んでください');return}
-  const buf=await f.arrayBuffer();
+  let buf, fname=f.name;
+  if(/\.zip$/i.test(f.name)){
+    // ZIPの中からExcelを取り出す（複数あるときは名前に HeatMap を含むもの、なければ最初の1つ）
+    try{
+      const z=await JSZip.loadAsync(await f.arrayBuffer());
+      const xs=Object.values(z.files).filter(e=>!e.dir&&/\.xls[xm]$/i.test(e.name)&&!/(^|\/)(__MACOSX\/|\._|~\$)/.test(e.name));
+      if(!xs.length){toast('ZIPの中にExcel（.xlsx）が見つかりません');return}
+      const pick=xs.find(e=>/heat\s*map/i.test(e.name))||xs[0];
+      buf=await pick.async('arraybuffer');fname=pick.name.split('/').pop();
+      if(xs.length>1)toast('ZIP内の '+fname+' を読み込みます（Excelが'+xs.length+'件ありました）');
+    }catch(e){console.error(e);toast('ZIPを開けませんでした');return}
+  }else if(/\.xls[xm]$/i.test(f.name)){buf=await f.arrayBuffer()}
+  else{toast('.xlsx または .zip ファイルを選んでください');return}
+  f={name:fname};
   if(backend&&backend.saveMap){
     if(await openBuffer(buf,f.name,false)){pendingMap={name:f.name,buf};setDirty(true);toast('読み込みました。現在地を設定して「公開」を押してください')}
   }else if(await openBuffer(buf,f.name,true))toast(f.name+' を読み込みました');
