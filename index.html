@@ -88,7 +88,7 @@ body.editing .mk.sel{outline:2px solid var(--accent);outline-offset:2px;backgrou
 .menu button{font:inherit;font-size:13px;text-align:left;background:transparent;color:var(--fg);border:0;border-radius:5px;padding:7px 12px;cursor:pointer;white-space:nowrap}
 .menu button:hover:not(:disabled){background:var(--hover)}
 .menu button:disabled{opacity:.4;cursor:default}
-.menu #saveBtn.dirty{color:#b45309;font-weight:700}
+#saveBtn.dirty{background:#d97706;border-color:#d97706;color:#fff;font-weight:700}
 body.delmode .mk{cursor:not-allowed}
 body.delmode .mk:hover{outline:2px solid #dc2626!important;outline-offset:2px}
 .zin{display:flex;align-items:center;gap:2px;font-family:var(--font-data);font-size:12px;color:var(--fg)}
@@ -123,9 +123,9 @@ body.delmode .mk:hover{outline:2px solid #dc2626!important;outline-offset:2px}
       <div class="menu" id="mkMenu" hidden>
         <button id="mAdd">配置</button>
         <button id="mDel">削除</button>
-        <button id="saveBtn" disabled>保存して公開</button>
       </div>
     </div>
+    <button class="btn" id="saveBtn" disabled>公開</button>
     <span class="share" id="shareState" hidden>読込中…</span>
     <button class="btn primary" id="newLoad">新規読込</button>
     <input type="file" id="file" accept=".xlsx,.xlsm" hidden>
@@ -142,7 +142,7 @@ body.delmode .mk:hover{outline:2px solid #dc2626!important;outline-offset:2px}
   <div class="empty" id="empty">
     <div class="drop">
       <h2 id="emptyTitle">ヒートマップのExcelをここにドロップ</h2>
-      <p id="emptyDesc"><code>HFO1_UtilizationMap_HeatMap.xlsx</code> を読み込み、現在地を設定して「保存して公開」を押すと、閲覧用PCに同じ表示が出ます。<br>フロアは上のボタンか ← → キー、数字キー（2〜6）で切り替えできます。</p>
+      <p id="emptyDesc"><code>HFO1_UtilizationMap_HeatMap.xlsx</code> を読み込み、現在地を設定して「公開」を押すと、閲覧用PCに同じ表示が出ます。<br>フロアは上のボタンか ← → キー、数字キー（2〜6）で切り替えできます。</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><label class="btn primary" for="file" id="fileBtn">ファイルを選択</label><button class="btn" id="backView" hidden>表示に戻る</button></div>
       <p id="emptyNote"></p>
     </div>
@@ -445,7 +445,7 @@ async function openFile(f){
   if(!/\.xls[xm]$/i.test(f.name)){toast('.xlsx ファイルを選んでください');return}
   const buf=await f.arrayBuffer();
   if(backend&&backend.saveMap){
-    if(await openBuffer(buf,f.name,false)){pendingMap={name:f.name,buf};setDirty(true);toast('読み込みました。現在地を設定して「保存して公開」を押してください')}
+    if(await openBuffer(buf,f.name,false)){pendingMap={name:f.name,buf};setDirty(true);toast('読み込みました。現在地を設定して「公開」を押してください')}
   }else if(await openBuffer(buf,f.name,true))toast(f.name+' を読み込みました');
 }
 $('file').onchange=e=>{openFile(e.target.files[0]);e.target.value=''};
@@ -572,7 +572,7 @@ function mkDown(e){
 
 // 役割：編集用PC（Excel読込・現在地設定・保存して公開）／閲覧用PC（公開されたレイアウトを表示するだけ）
 let dirty=false, savedAt=0, backend=null, isEditor=true, editKey='';
-function setDirty(v){dirty=v;const b=$('saveBtn');b.disabled=!v||!isEditor;b.classList.toggle('dirty',v);b.textContent=v?'保存して公開（未保存の変更あり）':'保存して公開';$('editBtn').classList.toggle('dirty',v)}
+function setDirty(v){dirty=v;const b=$('saveBtn');b.disabled=!isEditor;b.classList.toggle('dirty',v);b.textContent=v?'公開（未公開の変更あり）':'公開'}
 let delMode=false;
 function setDelMode(v){delMode=v;document.body.classList.toggle('delmode',v)}
 const menuOpen=v=>{$('mkMenu').hidden=!v;$('editBtn').setAttribute('aria-expanded',v)};
@@ -593,9 +593,9 @@ function addMark(type){
 }
 $('editBtn').onclick=e=>{e.stopPropagation();menuOpen($('mkMenu').hidden)};
 document.addEventListener('pointerdown',e=>{if(!e.target.closest('.mkmenu'))menuOpen(false)});
-$('mAdd').onclick=()=>{menuOpen(false);setDelMode(false);if(!sheets.length){toast('先にExcelを読み込んでください');return}addMark('station');toast('配置しました。ドラッグで動かし、「保存して公開」で閲覧用PCに反映されます')};
+$('mAdd').onclick=()=>{menuOpen(false);setDelMode(false);if(!sheets.length){toast('先にExcelを読み込んでください');return}addMark('station');toast('配置しました。ドラッグで動かし、「公開」で閲覧用PCに反映されます')};
 $('mDel').onclick=()=>{menuOpen(false);
-  if(selId&&marks.has(selId)){remove(selId);toast('削除しました。「保存して公開」で閲覧用PCに反映されます');return}
+  if(selId&&marks.has(selId)){remove(selId);toast('削除しました。「公開」で閲覧用PCに反映されます');return}
   if(![...marks.values()].some(m=>m.floor===curFloor())){toast('このフロアに現在地は設定されていません');return}
   setDelMode(true);toast('削除する現在地のイラストをクリックしてください（Escで取り消し）')};
 addEventListener('keydown',e=>{if(e.key==='Escape'&&delMode)setDelMode(false)});
@@ -605,7 +605,7 @@ addEventListener('beforeunload',e=>{if(dirty&&isEditor){e.preventDefault();e.ret
 function applyRole(){
   canWrite=isEditor;editing=isEditor;
   document.body.classList.toggle('editing',isEditor);
-  $('editBtn').hidden=!isEditor;$('newLoad').hidden=!isEditor;$('modeWrap').hidden=!isEditor;
+  $('editBtn').hidden=!isEditor;$('saveBtn').hidden=!isEditor;$('saveBtn').disabled=!isEditor;$('newLoad').hidden=!isEditor;$('modeWrap').hidden=!isEditor;
   $('fileBtn').hidden=!isEditor;
   if(!isEditor){$('emptyTitle').textContent='HFO1 充填率マップ';$('emptyDesc').textContent='公開されたレイアウトを表示します。フロアは上のボタンか ← → キーで切り替えできます。'}
 }
@@ -656,11 +656,12 @@ async function reloadRemote(silent){
   try{applyRemote(await backend.load());if(!silent)toast('最新の配置を読み込みました')}
   catch(e){console.warn(e);if(!silent)toast('配置を読み込めませんでした：'+(e.message||e))}
 }
-// 保存して公開：未公開のExcelがあれば先にマップを保存し、続けて現在地と向きを保存
+// 公開：未公開のExcelがあれば先にマップを保存し、続けて現在地と向きを保存
 $('saveBtn').onclick=async()=>{
   menuOpen(false);
-  if(!backend||!dirty||!isEditor)return;
-  const b=$('saveBtn');b.disabled=true;b.textContent='保存中…';
+  if(!backend||!isEditor)return;
+  if(!sheets.length){toast('先にExcelを読み込んでください');return}
+  const b=$('saveBtn');b.disabled=true;b.textContent='公開中…';
   try{
     if(pendingMap&&backend.saveMap){
       const r=await backend.saveMap(pendingMap.name,pendingMap.buf);
@@ -670,18 +671,19 @@ $('saveBtn').onclick=async()=>{
     const res=await backend.save({markers:toObj(),view:{mode:settings.mode}});
     if(!res||!res.ok)throw new Error((res&&res.error)||'不明なエラー');
     savedAt=res.savedAt||Date.now();setDirty(false);
-    toast(backend.kind==='local'?'この端末に保存しました':'保存して公開しました。閲覧用PCには数分以内に反映されます');
+    toast(backend.kind==='local'?'この端末に保存しました':'公開しました。閲覧用PCには数分以内に反映されます');
   }catch(e){
     console.warn(e);
     toast('保存できませんでした：'+(e.message||e));
     b.disabled=false;
-  }finally{b.textContent=dirty?'保存して公開（未保存の変更あり）':'保存して公開'}
+  }finally{b.textContent=dirty?'公開（未公開の変更あり）':'公開'}
 };
 // 公開マップを取り込む（同じものが手元にあればダウンロードしない）
 async function syncMap(meta,first){
   if(pendingMap)return;
   if(!meta||!meta.at){
-    if(first&&isEditor){const last=await loadLast();if(last&&last.buf)await openBuffer(last.buf,last.name,false)}
+    // まだ何も公開されていない：編集用PCに残っているExcelを表示し、次の「公開」でマップも送る
+    if(first&&isEditor){const last=await loadLast();if(last&&last.buf&&await openBuffer(last.buf,last.name,false)){pendingMap={name:last.name,buf:last.buf};setDirty(true)}}
     return;
   }
   if(meta.at===mapAt&&sheets.length)return;
@@ -719,7 +721,7 @@ async function refreshAll(first){
   }else{
     $('emptyNote').textContent='公開されたレイアウトを確認しています…';
     await refreshAll(true);
-    if(!sheets.length)$('emptyNote').textContent=isEditor?'まだ公開されたレイアウトがありません。Excelを読み込み、現在地を設定して「保存して公開」を押してください。':'まだ公開されたレイアウトがありません。';
+    if(!sheets.length)$('emptyNote').textContent=isEditor?'まだ公開されたレイアウトがありません。Excelを読み込み、現在地を設定して「公開」を押してください。':'まだ公開されたレイアウトがありません。';
     // 公開されたレイアウトを5分ごとに確認（編集用PCで未保存の変更があるときは取り込まない）
     setInterval(()=>{if(document.visibilityState==='visible')refreshAll(false)},5*60000);
   }
