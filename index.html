@@ -33,6 +33,8 @@ body{background:var(--bg);color:var(--fg);font-family:var(--font-ui);font-size:1
 .tabs{display:flex;gap:4px;flex-wrap:wrap}
 .tab{font:inherit;font-weight:700;font-size:14px;min-width:52px;padding:6px 12px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--fg);cursor:pointer;font-variant-numeric:tabular-nums}
 .tab:hover{background:var(--hover)}
+.tab{display:flex;flex-direction:column;align-items:center;line-height:1.15}
+.tab .avg{font-family:var(--font-data);font-weight:500;font-size:11px;opacity:.8;margin-top:2px}
 .tab[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .spacer{flex:1}
 .ctl{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:13px;white-space:nowrap}
@@ -416,7 +418,29 @@ function buildLegend(sh){
 function floorLabel(n){return n.replace(/[_\s-]*heat\s*map$/i,'').trim()||n}
 function buildTabs(){
   const t=$('tabs');t.innerHTML='';
-  sheets.forEach((s,i)=>{const b=document.createElement('button');b.className='tab';b.role='tab';b.id='tab'+i;b.textContent=floorLabel(s.name);b.title=s.name;b.setAttribute('aria-selected',i===cur);b.onclick=()=>select(i);t.appendChild(b)});
+  sheets.forEach((s,i)=>{const b=document.createElement('button');b.className='tab';b.role='tab';b.id='tab'+i;b.title=s.name;b.setAttribute('aria-selected',i===cur);b.onclick=()=>select(i);
+    const l=document.createElement('span');l.textContent=floorLabel(s.name);b.appendChild(l);
+    const a=floorAvg(s);if(a!=null){const v=document.createElement('span');v.className='avg';v.textContent=a.toFixed(1)+'%';b.appendChild(v);b.title=s.name+' 平均充填率 '+a.toFixed(1)+'%'}
+    t.appendChild(b)});
+}
+// フロアの平均充填率：枠内の数値セルを、結合セル・同じ値が続く棚の帯はまとめて1ロケーションとして単純平均
+function floorAvg(sh){
+  if(sh._avg!==undefined)return sh._avg;
+  const z=ZONES[0]||{}, r1=2,r2=88,c1=Math.floor(z.c1||1),c2=Math.floor(z.c2||sh.nC);
+  const vals=new Map();
+  for(const[key,cell]of sh.cells){
+    if(typeof cell.v!=='number'||!isFinite(cell.v))continue;
+    const r=Math.floor(key/20000),c=key%20000;
+    if(r<r1||r>r2||c<c1||c>c2)continue;
+    vals.set(key,cell.v);
+  }
+  const seen=new Set();let sum=0,n=0;
+  for(const[k,v]of vals){
+    if(seen.has(k))continue;seen.add(k);const st=[k];
+    while(st.length){const q=st.pop();for(const d of[20000,-20000,1,-1]){const nk=q+d;if(!seen.has(nk)&&vals.get(nk)===v){seen.add(nk);st.push(nk)}}}
+    sum+=v;n++;
+  }
+  return sh._avg=n?sum/n:null;
 }
 function select(i){
   if(!sheets.length)return;cur=(i+sheets.length)%sheets.length;settings.floor=cur;saveSettings();
